@@ -39,11 +39,14 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',  # Statik fayllar (CSS, JavaScript, tasvirlar)
     'rest_framework',  # Django REST Framework (DRF) ni qo'shish
     'rest_framework_simplejwt',  # JWT autentifikatsiya kutubxonasi
-    
+    'drf_spectacular',
     
     'social_app',  # Yangi app yaratamiz, ijtimoiy tarmoq logikasini shu yerda yozamiz
 ]
 
+REST_FRAMEWORK = {
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
