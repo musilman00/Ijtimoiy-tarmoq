@@ -5,8 +5,9 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from .serializers import UserSerializer, CommentSerializer, PostSerializer, ProfileSerializer, FollowSerializer
-from .models import  Message, Like, Post, Profile, Follow
-from django.views.decorators.csrf import csrf_exempt
+from .models import Message, Like, Post, Profile, Follow
+
+# Foydalanuvchi ro'yxatdan o'tish
 @api_view(['POST'])
 def register(request):
     serializer = UserSerializer(data=request.data)
@@ -15,6 +16,7 @@ def register(request):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+# Foydalanuvchini tizimga kirgizish
 @api_view(['POST'])
 def login_user(request):
     username = request.data.get('username')
@@ -25,11 +27,13 @@ def login_user(request):
         return Response({'message': 'Successfully logged in'}, status=status.HTTP_200_OK)
     return Response({'error': 'Invalid credentials'}, status=status.HTTP_400_BAD_REQUEST)
 
+# Foydalanuvchini tizimdan chiqarish
 @api_view(['POST'])
 def logout_user(request):
     logout(request)
     return Response({'message': 'Successfully logged out'}, status=status.HTTP_200_OK)
 
+# Xabar yuborish (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def send_message(request, username):
@@ -45,6 +49,7 @@ def send_message(request, username):
     except User.DoesNotExist:
         return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
 
+# Foydalanuvchiga kelgan xabarlarni olish (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_messages(request):
@@ -52,12 +57,14 @@ def get_messages(request):
     message_list = [{'sender': msg.sender.username, 'content': msg.content, 'timestamp': msg.timestamp} for msg in messages]
     return Response({'messages': message_list}, status=status.HTTP_200_OK)
 
+# Barcha postlarni olish
 @api_view(['GET'])
 def get_posts(request):
     posts = Post.objects.all()
     serializer = PostSerializer(posts, many=True)
     return Response(serializer.data, status=status.HTTP_200_OK)
 
+# Yangi post yaratish (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_post(request):
@@ -67,6 +74,7 @@ def create_post(request):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+# Postga izoh qo'shish (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def add_comment(request, post_id):
@@ -81,6 +89,7 @@ def add_comment(request, post_id):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+# Postni yoqtirish (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def like_post(request, post_id):
@@ -94,6 +103,7 @@ def like_post(request, post_id):
         return Response({'message': 'Post liked'}, status=status.HTTP_201_CREATED)
     return Response({'error': 'Already liked'}, status=status.HTTP_400_BAD_REQUEST)
 
+# Foydalanuvchilarni qidirish
 @api_view(['GET'])
 def search_users(request):
     query = request.GET.get('q', '')
@@ -101,6 +111,7 @@ def search_users(request):
     user_list = [{'username': user.username, 'email': user.email} for user in users]
     return Response(user_list, status=status.HTTP_200_OK)
 
+# Postlarni qidirish
 @api_view(['GET'])
 def search_posts(request):
     query = request.GET.get('q', '')
@@ -108,6 +119,7 @@ def search_posts(request):
     post_list = [{'id': post.id, 'content': post.content} for post in posts]
     return Response(post_list, status=status.HTTP_200_OK)
 
+# Do'stlar lentasini olish (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_feed(request):
@@ -121,9 +133,9 @@ def get_feed(request):
     except Profile.DoesNotExist:
         return Response({'error': 'Profile not found'}, status=status.HTTP_404_NOT_FOUND)
 
+# Profilni ko'rish va tahrirlash (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
 @api_view(['GET', 'PUT'])
 @permission_classes([IsAuthenticated])
-@csrf_exempt
 def profile_view(request):
     try:
         profile = Profile.objects.get(user=request.user)
@@ -140,6 +152,7 @@ def profile_view(request):
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+# Foydalanuvchini kuzatish (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def follow_user(request, username):
@@ -152,6 +165,7 @@ def follow_user(request, username):
     except User.DoesNotExist:
         return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
 
+# Foydalanuvchini kuzatishni to'xtatish (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def unfollow_user(request, username):
