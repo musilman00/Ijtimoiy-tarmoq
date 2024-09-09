@@ -40,6 +40,6 @@ urlpatterns = [
 
     # Parolni tiklash uchun URL'lar
     path('password/reset/', views.password_reset, name='password_reset'),  # Parolni tiklash
-    path('/register/', views.register_user, name='register'),  # Royhatdan otish
+    path('register/', views.register_user, name='register'),  # Royhatdan otish
 
 ]
