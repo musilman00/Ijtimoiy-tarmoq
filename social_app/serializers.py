@@ -1,117 +1,101 @@
-from django.contrib.auth.models import User
 from rest_framework import serializers
-from .models import Post, Comment, Like, Profile, Follow
+from django.contrib.auth.models import User
+from .models import Profile, FriendRequest, Message, Post, Comment, Like, Follow
 import re
 
-# Profil uchun serializer
+class UserSerializer(serializers.ModelSerializer):
+    # User modeli uchun serializer
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email']  # JSON formatda ko'rsatiladigan maydonlar
+
 class ProfileSerializer(serializers.ModelSerializer):
-    user = serializers.PrimaryKeyRelatedField(read_only=True)  # Foydalanuvchi haqida ma'lumot
+    # Profil modeli uchun serializer
+    user = UserSerializer()  # Foydalanuvchini boshqa serializer orqali ko'rsatamiz
 
     class Meta:
         model = Profile
-        fields = ['user', 'bio', 'profile_picture', 'location']
+        fields = ['user', 'bio', 'profile_picture', 'location']  # JSON formatda ko'rsatiladigan maydonlar
 
     def validate_bio(self, value):
-        # Bio uzunligi 160 belgidan oshmasligi kerak
-        if len(value) > 160:
-            raise serializers.ValidationError(
-                "Bio uzunligi 160 belgidan oshmasligi kerak."
-            )
+        # Bio maydonini validatsiya qilish
+        if len(value) > 300:
+            raise serializers.ValidationError("Bio 300 ta belgidan oshmasligi kerak.")  # Bio uchun maksimal uzunlik
         return value
 
-# Foydalanuvchi uchun serializer
-class UserSerializer(serializers.ModelSerializer):
+    def validate_location(self, value):
+        # Location maydonini validatsiya qilish
+        if not re.match(r'^[A-Za-z\s,]+$', value):
+            raise serializers.ValidationError("Location faqat harflar, bo'sh joylar va verguldan iborat bo'lishi kerak.")  # Regulyar ifoda bilan tekshirish
+        return value
+
+class FriendRequestSerializer(serializers.ModelSerializer):
+    # Do'stlik so'rovi modeli uchun serializer
+    from_user = UserSerializer()  # So'rov yuboruvchini JSON formatda ko'rsatamiz
+    to_user = UserSerializer()  # So'rov qabul qiluvchini JSON formatda ko'rsatamiz
+
     class Meta:
-        model = User
-        fields = ['username', 'email', 'password']
-        extra_kwargs = {'password': {'write_only': True}}  # Parolni faqat yozish mumkin, qaytarilmaydi
+        model = FriendRequest
+        fields = ['from_user', 'to_user', 'is_accepted']  # JSON formatda ko'rsatiladigan maydonlar
 
-    def validate_password(self, value):
-        # Parol uzunligi kamida 8 ta belgi, birta katta harf va birta raqam bo'lishi kerak
-        password_regex = re.compile(r'^(?=.*[A-Z])(?=.*\d)[A-Za-z\d]{8,}$')
-        
-        if not password_regex.match(value):
-            raise serializers.ValidationError(
-                "Parol kamida 8 ta belgi, birta katta harf va birta raqamdan iborat bo'lishi kerak."
-            )
+class MessageSerializer(serializers.ModelSerializer):
+    # Xabar modeli uchun serializer
+    sender = UserSerializer()  # Xabar yuboruvchini JSON formatda ko'rsatamiz
+    recipient = UserSerializer()  # Xabar qabul qiluvchini JSON formatda ko'rsatamiz
+
+    class Meta:
+        model = Message
+        fields = ['sender', 'recipient', 'content', 'timestamp']  # JSON formatda ko'rsatiladigan maydonlar
+
+    def validate_content(self, value):
+        # Xabar matnini validatsiya qilish
+        if not re.match(r'^[\w\s,.!?\'"-]+$', value):
+            raise serializers.ValidationError("Xabar matni faqat harflar, raqamlar va belgilardan iborat bo'lishi kerak.")  # Regulyar ifoda bilan tekshirish
         return value
 
-    def validate_username(self, value):
-        # Foydalanuvchi nomida faqat harflar va raqamlar bo'lishi kerak
-        if not re.match(r'^[a-zA-Z0-9]+$', value):
-            raise serializers.ValidationError(
-                "Foydalanuvchi nomida faqat harflar va raqamlar bo'lishi kerak."
-            )
-        return value
-
-    def validate_email(self, value):
-        # Email formatini tekshirish
-        email_regex = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-        
-        if not email_regex.match(value):
-            raise serializers.ValidationError(
-                "Email manzili noto'g'ri formatda."
-            )
-        return value
-
-    def create(self, validated_data):
-        # Yangi foydalanuvchini yaratish
-        user = User.objects.create_user(
-            username=validated_data['username'],
-            email=validated_data['email'],
-            password=validated_data['password']
-        )
-        return user
- 
-# Postlar uchun serializer
 class PostSerializer(serializers.ModelSerializer):
-    comments = serializers.PrimaryKeyRelatedField(many=True, queryset=Comment.objects.all())  # Post bilan bog'liq izohlarni ko'rsatish
-    likes = serializers.PrimaryKeyRelatedField(many=True, queryset=Like.objects.all())  # Post bilan bog'liq like'larni ko'rsatish
+    # Post modeli uchun serializer
+    user = UserSerializer()  # Post yaratuvchini JSON formatda ko'rsatamiz
 
     class Meta:
         model = Post
-        fields = ['id', 'user', 'content', 'timestamp', 'comments', 'likes']
+        fields = ['user', 'content', 'timestamp']  # JSON formatda ko'rsatiladigan maydonlar
 
     def validate_content(self, value):
-        # Postning maksimal uzunligini tekshirish
-        if len(value) > 280:
-            raise serializers.ValidationError(
-                "Post uzunligi 280 belgidan oshmasligi kerak."
-            )
+        # Post matnini validatsiya qilish
+        if len(value) > 1000:
+            raise serializers.ValidationError("Post matni 1000 ta belgidan oshmasligi kerak.")  # Post uchun maksimal uzunlik
         return value
 
-# Izohlar uchun serializer
 class CommentSerializer(serializers.ModelSerializer):
+    # Izoh modeli uchun serializer
+    user = UserSerializer()  # Izoh qoldirgan foydalanuvchini JSON formatda ko'rsatamiz
+    post = serializers.PrimaryKeyRelatedField(queryset=Post.objects.all())  # Izoh qoldirilgan postni ko'rsatamiz
+
     class Meta:
         model = Comment
-        fields = ['id', 'post', 'user', 'content', 'timestamp']
+        fields = ['post', 'user', 'content', 'timestamp']  # JSON formatda ko'rsatiladigan maydonlar
 
     def validate_content(self, value):
-        # Izoh bo'sh bo'lmasligi kerak
-        if not value.strip():
-            raise serializers.ValidationError(
-                "Izoh bo'sh bo'lmasligi kerak."
-            )
+        # Izoh matnini validatsiya qilish
+        if len(value) > 500:
+            raise serializers.ValidationError("Izoh matni 500 ta belgidan oshmasligi kerak.")  # Izoh uchun maksimal uzunlik
         return value
 
-# Like'lar uchun serializer
 class LikeSerializer(serializers.ModelSerializer):
+    # Like modeli uchun serializer
+    user = UserSerializer()  # Like qilgan foydalanuvchini JSON formatda ko'rsatamiz
+    post = serializers.PrimaryKeyRelatedField(queryset=Post.objects.all())  # Like qilingan postni ko'rsatamiz
+
     class Meta:
         model = Like
-        fields = ['id', 'post', 'user']
+        fields = ['post', 'user']  # JSON formatda ko'rsatiladigan maydonlar
 
-# Kuzatishlar uchun serializer
 class FollowSerializer(serializers.ModelSerializer):
-    followed_user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())  # Kuzatilgan foydalanuvchi haqida ma'lumot
+    # Kuzatish (Follow) modeli uchun serializer
+    user = UserSerializer()  # Kuzatuvchini JSON formatda ko'rsatamiz
+    followed_user = UserSerializer()  # Kuzatilayotgan foydalanuvchini JSON formatda ko'rsatamiz
 
     class Meta:
         model = Follow
-        fields = ['id', 'user', 'followed_user']
-
-    def validate(self, data):
-        # Foydalanuvchi o'zini kuzatolmaydi
-        if data['user'] == data['followed_user']:
-            raise serializers.ValidationError(
-                "Foydalanuvchi o'zini kuzatolmaydi."
-            )
-        return data
+        fields = ['user', 'followed_user']  # JSON formatda ko'rsatiladigan maydonlar

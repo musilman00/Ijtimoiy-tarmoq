@@ -1,180 +1,236 @@
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
+from django.shortcuts import get_object_or_404
+from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from rest_framework.decorators import api_view, permission_classes
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-from .serializers import UserSerializer, CommentSerializer, PostSerializer, ProfileSerializer, FollowSerializer
-from .models import Message, Like, Post, Profile, Follow
+from .models import Profile, FriendRequest, Message, Post, Comment, Like, Follow
+from .serializers import ProfileSerializer, FriendRequestSerializer, MessageSerializer, PostSerializer, CommentSerializer, LikeSerializer, FollowSerializer, UserSerializer
+from django.core.mail import send_mail
+from django.conf import settings
+from django.utils.crypto import get_random_string
 
-# Foydalanuvchi ro'yxatdan o'tish
 @api_view(['POST'])
-def register(request):
-    serializer = UserSerializer(data=request.data)
+def register_user(request):
+    """
+    Foydalanuvchini ro'yxatdan o'tkazish
+    """
+    username = request.data.get('username')
+    password = request.data.get('password')
+    email = request.data.get('email')
+
+    if User.objects.filter(username=username).exists():
+        return Response({'error': 'Username already exists'}, status=status.HTTP_400_BAD_REQUEST)
+
+    user = User.objects.create_user(username=username, password=password, email=email)
+    serializer = UserSerializer(user)
+    return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+@api_view(['GET'])
+def get_user_profile(request, user_id):
+    """
+    Foydalanuvchi profilini olish
+    """
+    profile = get_object_or_404(Profile, user_id=user_id)
+    serializer = ProfileSerializer(profile)
+    return Response(serializer.data)
+
+@api_view(['PUT'])
+def update_user_profile(request, user_id):
+    """
+    Foydalanuvchi profilini yangilash
+    """
+    profile = get_object_or_404(Profile, user_id=user_id)
+    serializer = ProfileSerializer(profile, data=request.data, partial=True)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['POST'])
+def send_friend_request(request):
+    """
+    Do'stlik so'rovini yuborish
+    """
+    serializer = FriendRequestSerializer(data=request.data)
     if serializer.is_valid():
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# Foydalanuvchini tizimga kirgizish
 @api_view(['POST'])
-def login_user(request):
-    username = request.data.get('username')
-    password = request.data.get('password')
-    user = authenticate(request, username=username, password=password)
-    if user is not None:
-        login(request, user)
-        return Response({'message': 'Successfully logged in'}, status=status.HTTP_200_OK)
-    return Response({'error': 'Invalid credentials'}, status=status.HTTP_400_BAD_REQUEST)
+def accept_friend_request(request, request_id):
+    """
+    Do'stlik so'rovini qabul qilish
+    """
+    friend_request = get_object_or_404(FriendRequest, id=request_id)
+    friend_request.is_accepted = True
+    friend_request.save()
+    return Response({'message': 'Friend request accepted'}, status=status.HTTP_200_OK)
 
-# Foydalanuvchini tizimdan chiqarish
 @api_view(['POST'])
-def logout_user(request):
-    logout(request)
-    return Response({'message': 'Successfully logged out'}, status=status.HTTP_200_OK)
+def send_message(request):
+    """
+    Xabar yuborish
+    """
+    serializer = MessageSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# Xabar yuborish (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def send_message(request, username):
-    try:
-        recipient = User.objects.get(username=username)
-        content = request.data.get('content')
-        if not content:
-            return Response({'error': 'Message content is required'}, status=status.HTTP_400_BAD_REQUEST)
-        message = Message.objects.create(
-            sender=request.user, recipient=recipient, content=content
-        )
-        return Response({'status': 'Message sent', 'message': message.content}, status=status.HTTP_201_CREATED)
-    except User.DoesNotExist:
-        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
-
-# Foydalanuvchiga kelgan xabarlarni olish (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def get_messages(request):
-    messages = Message.objects.filter(recipient=request.user)
-    message_list = [{'sender': msg.sender.username, 'content': msg.content, 'timestamp': msg.timestamp} for msg in messages]
-    return Response({'messages': message_list}, status=status.HTTP_200_OK)
+def get_user_messages(request):
+    """
+    Foydalanuvchining xabarlarini olish
+    """
+    user = request.user
+    messages = Message.objects.filter(recipient=user)
+    serializer = MessageSerializer(messages, many=True)
+    return Response(serializer.data)
 
-# Barcha postlarni olish
 @api_view(['GET'])
-def get_posts(request):
-    posts = Post.objects.all()
+def get_user_posts(request, user_id):
+    """
+    Foydalanuvchining postlarini olish
+    """
+    posts = Post.objects.filter(user_id=user_id)
     serializer = PostSerializer(posts, many=True)
-    return Response(serializer.data, status=status.HTTP_200_OK)
+    return Response(serializer.data)
 
-# Yangi post yaratish (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
 def create_post(request):
+    """
+    Post yaratish
+    """
     serializer = PostSerializer(data=request.data)
     if serializer.is_valid():
-        serializer.save(user=request.user)
+        serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# Postga izoh qo'shish (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def add_comment(request, post_id):
-    try:
-        post = Post.objects.get(id=post_id)
-    except Post.DoesNotExist:
-        return Response({'error': 'Post not found'}, status=status.HTTP_404_NOT_FOUND)
+@api_view(['GET'])
+def get_post_comments(request, post_id):
+    """
+    Postga izohlarni olish
+    """
+    post = get_object_or_404(Post, id=post_id)
+    comments = Comment.objects.filter(post=post)
+    serializer = CommentSerializer(comments, many=True)
+    return Response(serializer.data)
 
+@api_view(['POST'])
+def create_comment(request):
+    """
+    Postga izoh qoldirish
+    """
     serializer = CommentSerializer(data=request.data)
     if serializer.is_valid():
-        serializer.save(user=request.user, post=post)
+        serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# Postni yoqtirish (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
+@api_view(['GET'])
+def get_post_likes(request, post_id):
+    """
+    Postga like'larni olish
+    """
+    post = get_object_or_404(Post, id=post_id)
+    likes = Like.objects.filter(post=post)
+    serializer = LikeSerializer(likes, many=True)
+    return Response(serializer.data)
+
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def like_post(request, post_id):
-    try:
-        post = Post.objects.get(id=post_id)
-    except Post.DoesNotExist:
-        return Response({'error': 'Post not found'}, status=status.HTTP_404_NOT_FOUND)
+def like_post(request):
+    """
+    Postga like qo'yish
+    """
+    serializer = LikeSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    if not Like.objects.filter(post=post, user=request.user).exists():
-        like = Like.objects.create(post=post, user=request.user)
-        return Response({'message': 'Post liked'}, status=status.HTTP_201_CREATED)
-    return Response({'error': 'Already liked'}, status=status.HTTP_400_BAD_REQUEST)
-
-# Foydalanuvchilarni qidirish
-@api_view(['GET'])
-def search_users(request):
-    query = request.GET.get('q', '')
-    users = User.objects.filter(username__icontains=query)
-    user_list = [{'username': user.username, 'email': user.email} for user in users]
-    return Response(user_list, status=status.HTTP_200_OK)
-
-# Postlarni qidirish
-@api_view(['GET'])
-def search_posts(request):
-    query = request.GET.get('q', '')
-    posts = Post.objects.filter(content__icontains=query)
-    post_list = [{'id': post.id, 'content': post.content} for post in posts]
-    return Response(post_list, status=status.HTTP_200_OK)
-
-# Do'stlar lentasini olish (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def get_feed(request):
-    try:
-        friends = request.user.profile.friends.all()
-        posts = Post.objects.filter(user__in=friends)
-        following_users = request.user.following.values_list('followed_user', flat=True)
-        posts = Post.objects.filter(author__in=following_users).order_by('-created_at')
-        serializer = PostSerializer(posts, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-    except Profile.DoesNotExist:
-        return Response({'error': 'Profile not found'}, status=status.HTTP_404_NOT_FOUND)
-
-# Profilni ko'rish va tahrirlash (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
-@api_view(['GET', 'PUT'])
-@permission_classes([IsAuthenticated])
-def profile_view(request):
-    try:
-        profile = Profile.objects.get(user=request.user)
-    except Profile.DoesNotExist:
-        return Response({'error': 'Profile not found'}, status=status.HTTP_404_NOT_FOUND)
-
-    if request.method == 'GET':
-        serializer = ProfileSerializer(profile)
-        return Response(serializer.data)
-    elif request.method == 'PUT':
-        serializer = ProfileSerializer(profile, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-# Foydalanuvchini kuzatish (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def follow_user(request, username):
+def follow_user(request):
+    """
+    Foydalanuvchini kuzatish
+    """
+    serializer = FollowSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['DELETE'])
+def unfollow_user(request, user_id):
+    """
+    Foydalanuvchini kuzatishni bekor qilish
+    """
+    follow = Follow.objects.filter(user=request.user, followed_user_id=user_id).first()
+    if follow:
+        follow.delete()
+        return Response({'message': 'Unfollowed successfully'}, status=status.HTTP_200_OK)
+    return Response({'error': 'Follow record not found'}, status=status.HTTP_404_NOT_FOUND)
+
+@api_view(['GET'])
+def get_user_followers(request, user_id):
+    """
+    Foydalanuvchining kuzatuvchilarini olish
+    """
+    user = get_object_or_404(User, id=user_id)
+    followers = user.followers.all()
+    serializer = UserSerializer(followers, many=True)
+    return Response(serializer.data)
+
+@api_view(['GET'])
+def get_user_following(request, user_id):
+    """
+    Foydalanuvchining kuzatayotganlarini olish
+    """
+    user = get_object_or_404(User, id=user_id)
+    following = user.following.all()
+    serializer = UserSerializer(following, many=True)
+    return Response(serializer.data)
+
+@api_view(['POST'])
+def login_user(request):
+    """
+    Foydalanuvchini login qilish
+    """
+    username = request.data.get('username')
+    password = request.data.get('password')
+    user = authenticate(username=username, password=password)
+    if user:
+        login(request, user)
+        return Response({'message': 'Login successful'}, status=status.HTTP_200_OK)
+    return Response({'error': 'Invalid credentials'}, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['POST'])
+def logout_user(request):
+    """
+    Foydalanuvchini logout qilish
+    """
+    logout(request)
+    return Response({'message': 'Logout successful'}, status=status.HTTP_200_OK)
+
+@api_view(['POST'])
+def password_reset(request):
+    """
+    Parolni tiklash uchun token yuborish
+    """
+    email = request.data.get('email')
     try:
-        followed_user = User.objects.get(username=username)
-        follow, created = Follow.objects.get_or_create(user=request.user, followed_user=followed_user)
-        if created:
-            return Response({'status': 'Now following'}, status=status.HTTP_200_OK)
-        return Response({'status': 'Already following'}, status=status.HTTP_400_BAD_REQUEST)
+        user = User.objects.get(email=email)
+        reset_token = get_random_string(length=32)  # Token generatsiya qilish
+        # Tokenni saqlash va email yuborish funksiyasi qo'shilishi kerak
+        send_mail(
+            'Password Reset Token',
+            f'Your password reset token is: {reset_token}',
+            settings.DEFAULT_FROM_EMAIL,
+            [email],
+            fail_silently=False,
+        )
+        return Response({'message': 'Password reset token sent to your email'}, status=status.HTTP_200_OK)
     except User.DoesNotExist:
-        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
-
-# Foydalanuvchini kuzatishni to'xtatish (faqat autentifikatsiyadan o'tgan foydalanuvchilar uchun)
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def unfollow_user(request, username):
-    try:
-        followed_user = User.objects.get(username=username)
-        follow = Follow.objects.filter(user=request.user, followed_user=followed_user).first()
-        if follow:
-            follow.delete()
-            return Response({'status': 'Unfollowed'}, status=status.HTTP_200_OK)
-        return Response({'status': 'Not following'}, status=status.HTTP_400_BAD_REQUEST)
-    except User.DoesNotExist:
-        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'error': 'User with this email does not exist'}, status=status.HTTP_404_NOT_FOUND)
